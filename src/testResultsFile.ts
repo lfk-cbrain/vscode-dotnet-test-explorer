@@ -3,6 +3,8 @@ import * as fs from "fs";
 import { Disposable } from "vscode";
 import { DOMParser, Element, Node } from "xmldom";
 import { TestResult } from "./testResult";
+import { testNameMappings } from "./testDiscovery";
+
 
 function findChildElement(node: Node, name: string): Node {
     let child = node.firstChild;
@@ -38,11 +40,16 @@ function parseUnitTestResults(xml: Element): TestResult[] {
             getAttributeValue(nodes[i], "testId"),
             getAttributeValue(nodes[i], "outcome"),
             getTextContentForTag(nodes[i], "Message"),
+            getTextContentForTag(nodes[i], "StdOut"),
             getTextContentForTag(nodes[i], "StackTrace"),
         ));
     }
 
     return results;
+}
+
+function isCucumberTest(className: string): boolean {
+    return className.toLowerCase().includes('cucumber');
 }
 
 function updateUnitTestDefinitions(xml: Element, results: TestResult[]): void {
@@ -64,23 +71,34 @@ function updateUnitTestDefinitions(xml: Element, results: TestResult[]): void {
     for (const result of results) {
         const name = names.get(result.id);
         if (name) {
+            if (isCucumberTest(name.className)) {
+
+                const mapping = testNameMappings.find(m => m.originalName.includes(name.method));
+
+                if (mapping) {
+                    name.className = mapping.normalizedName.substring(0, mapping.normalizedName.lastIndexOf('.'));
+                    name.method = mapping.normalizedName.substring(mapping.normalizedName.lastIndexOf('.') + 1);
+                }
+            }
             result.updateName(name.className, name.method);
         }
     }
 }
+
 export function parseResults(filePath: string): Promise<TestResult[]> {
-    return new Promise( (resolve, reject) => {
+    return new Promise((resolve, reject) => {
         let results: TestResult[];
         fs.readFile(filePath, (err, data) => {
             if (!err) {
                 const xdoc = new DOMParser().parseFromString(data.toString(), "application/xml");
+
                 results = parseUnitTestResults(xdoc.documentElement);
 
                 updateUnitTestDefinitions(xdoc.documentElement, results);
 
                 try {
                     fs.unlinkSync(filePath);
-                } catch {}
+                } catch { }
 
                 resolve(results);
             }

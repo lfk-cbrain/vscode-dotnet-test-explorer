@@ -29,6 +29,7 @@ export class TestCommands implements Disposable {
     private lastRunTestContext: ITestRunContext = null;
     private testResultsFolder: string;
     private testResultsFolderWatcher: any;
+    private testResultWindow = vscode.window.createOutputChannel("Test Results", "feature");
 
     private isRunning: boolean;
 
@@ -158,6 +159,23 @@ export class TestCommands implements Disposable {
         }
     }
 
+    private printTestResultsOverview(testResults: TestResult[]): void {
+        var testPassed = 0;
+        var testFailed = 0;
+
+        for (const testResult of testResults) {
+            if (testResult.outcome === "Passed") {
+                testPassed++;
+            } else if (testResult.outcome === "Failed") {
+                testFailed++;
+            }
+        }
+
+        this.testResultWindow.appendLine(`Test results overview:`);
+        this.testResultWindow.appendLine(`    Passed: ${testPassed}`);
+        this.testResultWindow.appendLine(`    Failed: ${testFailed}`);
+    }
+
     private async runTestCommand(testName: string, isSingleTest: boolean, debug?: boolean): Promise<void> {
 
         if (this.isRunning) {
@@ -201,7 +219,25 @@ export class TestCommands implements Disposable {
             const files = await globPromise;
             const allTestResults = [];
             for (const file of files) {
-                const testResults = await parseResults(file);
+                const testResults = await parseResults(file)
+
+                this.testResultWindow.clear();
+                this.testResultWindow.show();
+
+                testResults.forEach(t => {
+                    if (t.outcome === "Failed") {
+                        this.testResultWindow.appendLine(`Test failed:\n    ${t.fullName}`);
+                        this.testResultWindow.appendLine(`Message:\n    ${t.message}`);
+                        if (t.fullName.toLowerCase().includes("cucumber")) {
+                            const originalName = testNameMappings.find(m => m.normalizedName === t.fullName)?.originalName;
+                            this.testResultWindow.appendLine(`${originalName}`);
+                            this.testResultWindow.appendLine(`\n${t.stdOut}`);
+                        }
+                        this.testResultWindow.appendLine(``);
+                    }
+                })
+                this.printTestResultsOverview(testResults);
+
                 allTestResults.push(...testResults);
             }
             this.sendNewTestResults({ clearPreviousTestResults: testName === "", testResults: allTestResults });
@@ -213,8 +249,7 @@ export class TestCommands implements Disposable {
                     .window
                     .showErrorMessage("Build failed. Fix your build and try to run the test(s) again", "Re-run test(s)",)
                     .then(selection => {
-                        if (selection !== undefined)
-                        {
+                        if (selection !== undefined) {
                             vscode.commands.executeCommand("dotnet-test-explorer.rerunLastCommand");
                         }
                     });;

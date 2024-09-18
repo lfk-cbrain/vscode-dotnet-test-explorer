@@ -7,7 +7,7 @@ export class TestResult {
     private className: string;
     private method: string;
 
-    public constructor(private _testId: string, private _outcome: string, private _message: string, private _stackTrace: string) {
+    public constructor(private _testId: string, private _outcome: string, private _message: string, private _stdOut: string, private _stackTrace: string) {
     }
 
     public get fullName(): string {
@@ -24,6 +24,10 @@ export class TestResult {
 
     public get message(): string {
         return this._message;
+    }
+
+    public get stdOut(): string {
+        return this._stdOut;
     }
 
     public get stackTrace(): string {

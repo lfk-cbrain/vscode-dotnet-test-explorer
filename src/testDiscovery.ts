@@ -7,6 +7,7 @@ import { IMessage } from "./messages";
 import * as vscode from "vscode";
 import { performance } from "perf_hooks";
 
+
 export interface IDiscoverTestsResult {
     testNames: string[];
     warningMessage?: IMessage;

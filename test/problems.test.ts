@@ -6,14 +6,14 @@ import {TestResult} from "../src/testResult";
 suite("Problems tests", () => {
 
     test("Test results without stacktrace", () => {
-        const results = [GetTestResult("1", "Passed", "", "")];
+        const results = [GetTestResult("1", "Passed", "", "", "")];
 
         const problems = Problems.createProblemsFromResults(results);
         assert.equal(problems.length, 0);
     });
 
     test("One results with stacktrace", () => {
-        const results = [GetTestResult("1", "Passed", "Some assert error", " Bla bla bla  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43")];
+        const results = [GetTestResult("1", "Passed", "Some assert error", "", " Bla bla bla  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43")];
 
         const problems = Problems.createProblemsFromResults(results);
         assert.equal(problems["D:\\xunittests\\TestClass1.cs"].length, 1);
@@ -22,7 +22,7 @@ suite("Problems tests", () => {
 
     test("One results with multiple stacktrace returns last link", () => {
         const results = [
-            GetTestResult("1", "Failed", "Some assert error", `
+            GetTestResult("1", "Failed", "Some assert error", "", `
                 at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43
                 at XunitTests.TestClass1.Fail() in D:\\xunittests\\TestClass1.cs:line 24`,
             ),
@@ -36,8 +36,8 @@ suite("Problems tests", () => {
 
     test("Two results with stacktrace in different files", () => {
         const results = [
-            GetTestResult("1", "Failed", "Some assert error", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43"),
-            GetTestResult("2", "Failed", "Another assert error", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass2.cs:line 43"),
+            GetTestResult("1", "Failed", "Some assert error", "", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43"),
+            GetTestResult("2", "Failed", "Another assert error", "", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass2.cs:line 43"),
         ];
 
         const problems = Problems.createProblemsFromResults(results);
@@ -51,8 +51,8 @@ suite("Problems tests", () => {
 
     test("Two results with stacktrace in same file", () => {
         const results = [
-            GetTestResult("1", "Failed", "Some assert error", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43"),
-            GetTestResult("2", "Failed", "Another assert error", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 83"),
+            GetTestResult("1", "Failed", "Some assert error", "", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 43"),
+            GetTestResult("2", "Failed", "Another assert error", "", "  at XunitTests.InnerC.Get() in D:\\xunittests\\TestClass1.cs:line 83"),
         ];
 
         const problems = Problems.createProblemsFromResults(results);
@@ -63,6 +63,6 @@ suite("Problems tests", () => {
     });
 });
 
-function GetTestResult(id: string, outcome: string, message: string, stackTrace: string) {
-    return new TestResult(id, outcome, message, stackTrace);
+function GetTestResult(id: string, outcome: string, message: string, stdOut: string, stackTrace: string) {
+    return new TestResult(id, outcome, message, stdOut, stackTrace);
 }
