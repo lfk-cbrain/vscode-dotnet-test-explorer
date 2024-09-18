@@ -29,7 +29,7 @@ export class TestCommands implements Disposable {
     private lastRunTestContext: ITestRunContext = null;
     private testResultsFolder: string;
     private testResultsFolderWatcher: any;
-    private testResultWindow = vscode.window.createOutputChannel("Test Results", "feature");
+    private testResultWindow = vscode.window.createOutputChannel(".NET Explorer Test Results", "feature");
 
     private isRunning: boolean;
 
@@ -226,12 +226,19 @@ export class TestCommands implements Disposable {
 
                 testResults.forEach(t => {
                     if (t.outcome === "Failed") {
-                        this.testResultWindow.appendLine(`Test failed:\n    ${t.fullName}`);
-                        this.testResultWindow.appendLine(`Message:\n    ${t.message}`);
+                        this.testResultWindow.appendLine(`Test failed:\n${t.fullName}\n`);
+                        this.testResultWindow.appendLine(`Message:\n${t.message}`);
                         if (t.fullName.toLowerCase().includes("cucumber")) {
                             const originalName = testNameMappings.find(m => m.normalizedName === t.fullName)?.originalName;
-                            this.testResultWindow.appendLine(`${originalName}`);
-                            this.testResultWindow.appendLine(`\n${t.stdOut}`);
+
+                            const feature = originalName.split("::")[0].trim();
+                            const scenario = originalName.split("::")[1].trim();
+                            
+                            const stdOutFormatted = t.stdOut.replace(/\n/g, "\n  ");
+                            
+                            this.testResultWindow.appendLine(`\nFeature: ${feature}`);
+                            this.testResultWindow.appendLine(`\Scenario: ${scenario}`);
+                            this.testResultWindow.appendLine(`${stdOutFormatted}`);
                         }
                         this.testResultWindow.appendLine(``);
                     }
