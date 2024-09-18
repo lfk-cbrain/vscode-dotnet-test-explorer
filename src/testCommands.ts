@@ -12,11 +12,13 @@ import { TestNode } from "./testNode";
 import { ITestResult, TestResult } from "./testResult";
 import { parseResults } from "./testResultsFile";
 import { Utility } from "./utility";
+import { testNameMappings } from "./testDiscovery";
 
 export interface ITestRunContext {
     testName: string;
     isSingleTest: boolean;
 }
+
 
 export class TestCommands implements Disposable {
     private onTestDiscoveryStartedEmitter = new EventEmitter<string>();
@@ -256,7 +258,15 @@ export class TestCommands implements Disposable {
             let command = `dotnet test${Utility.additionalArgumentsOption} --no-build --logger \"trx;LogFileName=${testResultFile}\"`;
 
             if (testName && testName.length) {
-                if (isSingleTest) {
+                if (testName.startsWith("Cucumber")) {
+                    // Find the original test name from the mapping
+                    const mapping = testNameMappings.find(m => m.normalizedName === testName);
+                    if (mapping) {
+                        command += ` --filter DisplayName="${mapping.originalName.trim()}"`;
+                    } else {
+                        Logger.LogWarning(`Could not find original test name for ${testName}`);
+                    }
+                } else if (isSingleTest) {
                     command = command + ` --filter "FullyQualifiedName=${testName.replace(/\(.*\)/g, "")}"`;
                 } else {
                     command = command + ` --filter "FullyQualifiedName~${testName.replace(/\(.*\)/g, "")}"`;

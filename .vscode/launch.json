@@ -8,7 +8,7 @@
             "request": "launch",
             "runtimeExecutable": "${execPath}",
             "args": [
-                "${workspaceRoot}/test/xunittests",
+                "C:\\Projects\\ProcessWork\\CaseGuideTesting",
                 "--extensionDevelopmentPath=${workspaceRoot}" 
             ],
             "stopOnEntry": false,

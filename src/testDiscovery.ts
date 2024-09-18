@@ -4,44 +4,71 @@ import * as path from "path";
 import { Executor } from "./executor";
 import { Logger } from "./logger";
 import { IMessage } from "./messages";
+import * as vscode from "vscode";
+import { performance } from "perf_hooks";
 
 export interface IDiscoverTestsResult {
     testNames: string[];
     warningMessage?: IMessage;
 }
 
-export function discoverTests(testDirectoryPath: string, dotnetTestOptions: string): Promise<IDiscoverTestsResult> {
-    return executeDotnetTest(testDirectoryPath, dotnetTestOptions)
-        .then((stdout) => {
+export let testNameMappings: { originalName: string, normalizedName: string }[] = [];
 
-            const testNames = extractTestNames(stdout);
-            if (!isMissingFqNames(testNames)) {
-                return { testNames };
+
+export async function discoverTests(testDirectoryPath: string, dotnetTestOptions: string): Promise<IDiscoverTestsResult> {
+    const startTime = performance.now();
+
+    try {
+        const stdout = await executeDotnetTest(testDirectoryPath, dotnetTestOptions);
+
+        const extractTestNamesStartTime = performance.now();
+        const testNames = await extractTestNames(stdout);
+        const extractTestNamesEndTime = performance.now();
+        Logger.Log(`extractTestNames completed in ${extractTestNamesEndTime - extractTestNamesStartTime} milliseconds`);
+
+        if (!isMissingFqNames(testNames)) {
+            const endTime = performance.now();
+            Logger.Log(`discoverTests completed in ${endTime - startTime} milliseconds`);
+            return { testNames };
+        }
+
+        const extractAssemblyPathsStartTime = performance.now();
+        const assemblyPaths = extractAssemblyPaths(stdout);
+        const extractAssemblyPathsEndTime = performance.now();
+        Logger.Log(`extractAssemblyPaths completed in ${extractAssemblyPathsEndTime - extractAssemblyPathsStartTime} milliseconds`);
+
+        if (assemblyPaths.length === 0) {
+            throw new Error(`Couldn't extract assembly paths from dotnet test output: ${stdout}`);
+        }
+
+        try {
+            const discoverTestsWithVstestStartTime = performance.now();
+            const results = await discoverTestsWithVstest(assemblyPaths, testDirectoryPath);
+            const discoverTestsWithVstestEndTime = performance.now();
+            const endTime = performance.now();
+
+            Logger.Log(`discoverTestsWithVstest completed in ${discoverTestsWithVstestEndTime - discoverTestsWithVstestStartTime} milliseconds`);
+            Logger.Log(`discoverTests completed in ${endTime - startTime} milliseconds`);
+            return { testNames: results };
+        } catch (error) {
+            if (error instanceof ListFqnNotSupportedError) {
+                const endTime = performance.now();
+                Logger.Log(`discoverTests completed in ${endTime - startTime} milliseconds`);
+                return {
+                    testNames,
+                    warningMessage: {
+                        text: "dotnet sdk >=2.1.2 required to retrieve fully qualified test names. Returning non FQ test names.",
+                        type: "DOTNET_SDK_FQN_NOT_SUPPORTED",
+                    },
+                };
             }
-
-            const assemblyPaths = extractAssemblyPaths(stdout);
-            if (assemblyPaths.length === 0) {
-                throw new Error(`Couldn't extract assembly paths from dotnet test output: ${stdout}`);
-            }
-
-            return discoverTestsWithVstest(assemblyPaths, testDirectoryPath)
-                .then((results) => {
-                    return { testNames: results };
-                })
-                .catch((error: Error) => {
-                    if (error instanceof ListFqnNotSupportedError) {
-                        return {
-                            testNames,
-                            warningMessage: {
-                                text: "dotnet sdk >=2.1.2 required to retrieve fully qualified test names. Returning non FQ test names.",
-                                type: "DOTNET_SDK_FQN_NOT_SUPPORTED",
-                            },
-                        };
-                    }
-
-                    throw error;
-                });
-        });
+            throw error;
+        }
+    } catch (error) {
+        const endTime = performance.now();
+        Logger.Log(`discoverTests completed in ${endTime - startTime} milliseconds`);
+        throw error;
+    }
 }
 
 function executeDotnetTest(testDirectoryPath: string, dotnetTestOptions: string): Promise<string> {
@@ -63,20 +90,38 @@ function executeDotnetTest(testDirectoryPath: string, dotnetTestOptions: string)
     });
 }
 
-function extractTestNames(testCommandStdout: string): string[] {
-    return testCommandStdout
-        .split(/[\r\n]+/g)
-        /*
-        * The dotnet-cli prefixes all discovered unit tests
-        * with whitespace. We can use this to drop any lines of
-        * text that are not relevant, even in complicated project
-        * structures.
-        **/
-        .filter((item) => item && item.startsWith("    "))
-        .sort()
-        .map((item) => item.trim());
-}
+async function extractTestNames(testCommandStdout: string): Promise<string[]> {
+    const splits = testCommandStdout.split(/available:/g);
 
+    const tests = splits[1];
+
+    const testDir = await findCucumberTestDirectory();
+
+    Logger.Log("Tests:\n" + tests);
+
+    return Promise.all(
+        tests
+            .split(/[\r\n]+/g)
+            .filter(item => item && item.startsWith("    "))
+            .map(async (testName) => {
+                // Check if it's a Cucumber test and normalize if necessary
+                if (isCucumberTest(testName)) {
+                    const normalizedName = await normalizeCucumberTestName(testName, testDir);
+
+                    // Store the mapping for later reference when running the test
+                    testNameMappings.push({
+                        originalName: testName,
+                        normalizedName: normalizedName
+                    });
+
+                    return normalizedName;
+                }
+                // If it's a unit test, leave it unchanged
+                return testName;
+            })
+    )
+        .then(results => results.sort().map(item => item.trim()));
+}
 function extractAssemblyPaths(testCommandStdout: string): string[] {
     /*
     * The string we need to parse is localized
@@ -122,6 +167,75 @@ function extractAssemblyPaths(testCommandStdout: string): string[] {
 
 function isMissingFqNames(testNames: string[]): boolean {
     return testNames.some((name) => !name.includes("."));
+}
+
+function isCucumberTest(testName: string): boolean {
+    return testName.includes("::")
+}
+
+async function normalizeCucumberTestName(testName: string, testDir: string): Promise<string> {
+    // Split on the "::" which separates different sections of the Cucumber test name
+    const parts = testName.split("::").map(part => part.trim());
+
+    // Convert each part into a dot-delimited, PascalCase format
+    const pascalCaseParts = parts.map(part => toPascalCase(part));
+
+    // If a test directory was found, prepend it to the test name
+    if (testDir) {
+        testDir = path.basename(testDir);
+        return `${testDir}.${pascalCaseParts.join(".")}`;
+    }
+
+    return `Cucumber.${pascalCaseParts.join(".")}`;
+}
+
+async function findCucumberTestDirectory(): Promise<string | undefined> {
+    // Find all .feature files
+    const featureFiles = await vscode.workspace.findFiles('**/*.feature', '**/node_modules/**');
+
+    if (featureFiles.length === 0) {
+        return undefined; // No .feature files found
+    }
+
+    // Collect all unique parent directories of the found .feature files
+    const directories = new Set<string>();
+    featureFiles.forEach(file => {
+        const dir = vscode.Uri.joinPath(file, "..").fsPath;
+        directories.add(dir);
+    });
+
+    // Convert the set to an array for easier processing
+    const dirArray = Array.from(directories);
+
+    // Check each directory for a suitable parent directory
+    for (const dir of dirArray) {
+        const parentDir = path.resolve(dir, '..');
+        if (path.basename(parentDir).toLowerCase().includes('test')) {
+            if (parentDir !== dir) {
+                const parentContents = await vscode.workspace.fs.readDirectory(vscode.Uri.file(parentDir));
+                // If the parent directory is empty or only contains our directories, return it
+                const onlyHasDirectories = parentContents.every(([_, type]) =>
+                    type === vscode.FileType.Directory);
+
+                if (onlyHasDirectories) {
+                    return parentDir;
+                }
+
+            } else {
+                return dir;
+            }
+        }
+    }
+    // Default to the first directory if no special conditions are met
+    return dirArray[0];
+}
+
+function toPascalCase(input: string): string {
+    return input
+        .toLowerCase()
+        .split(/\s+/g)  // Split by whitespace
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))  // Capitalize each word
+        .join("");  // Join them back without spaces
 }
 
 function discoverTestsWithVstest(assemblyPaths: string[], testDirectoryPath: string): Promise<string[]> {
