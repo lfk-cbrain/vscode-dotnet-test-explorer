@@ -302,9 +302,16 @@ export class TestCommands implements Disposable {
             if (testName && testName.length) {
                 if (testName.startsWith("Cucumber")) {
                     // Find the original test name from the mapping
-                    const mapping = testNameMappings.find(m => m.normalizedName === testName);
-                    if (mapping) {
-                        command += ` --filter DisplayName="${mapping.originalName.trim()}"`;
+                    const isSingleTest = testNameMappings.find(m => m.normalizedName === testName);
+
+                    // check if mapping exists of testname == m.normalizedCategoryName
+                    const isCategory = testNameMappings.find(m => m.normalizedCategoryName === testName);
+                    
+                    if (isCategory) {
+                        const scenarioName = isCategory.normalizedCategoryName.substring(isCategory.normalizedCategoryName.lastIndexOf(".") + 1);
+                        command += ` --filter "DisplayName~"${scenarioName}"`;
+                    } else if (isSingleTest) {
+                        command += ` --filter "DisplayName=${isSingleTest.originalName.trim()}"`;
                     } else {
                         Logger.LogWarning(`Could not find original test name for ${testName}`);
                     }

@@ -6,6 +6,7 @@ import { Logger } from "./logger";
 import { IMessage } from "./messages";
 import * as vscode from "vscode";
 import { performance } from "perf_hooks";
+import { stringify } from "querystring";
 
 
 export interface IDiscoverTestsResult {
@@ -13,7 +14,7 @@ export interface IDiscoverTestsResult {
     warningMessage?: IMessage;
 }
 
-export let testNameMappings: { originalName: string, normalizedName: string }[] = [];
+export let testNameMappings: { originalName: string, normalizedName: string, normalizedCategoryName: string }[] = [];
 
 
 export async function discoverTests(testDirectoryPath: string, dotnetTestOptions: string): Promise<IDiscoverTestsResult> {
@@ -103,7 +104,7 @@ async function extractTestNames(testCommandStdout: string): Promise<string[]> {
     return Promise.all(
         tests
             .split(/[\r\n]+/g)
-            .filter(item => item && item.startsWith("    "))
+            .filter(item => item && item.startsWith("    ") && item.includes("::"))
             .map(async (testName) => {
                 // Check if it's a Cucumber test and normalize if necessary
                 if (isCucumberTest(testName)) {
@@ -112,12 +113,13 @@ async function extractTestNames(testCommandStdout: string): Promise<string[]> {
                     // Store the mapping for later reference when running the test
                     testNameMappings.push({
                         originalName: testName,
-                        normalizedName: normalizedName
+                        normalizedName: normalizedName,
+                        normalizedCategoryName: normalizedName.substring(0, normalizedName.lastIndexOf('.'))
                     });
 
                     return normalizedName;
                 }
-                // If it's a unit test, leave it unchanged
+                // unit tests
                 return testName;
             })
     )
@@ -179,7 +181,7 @@ async function normalizeCucumberTestName(testName: string, testDir: string): Pro
     const parts = testName.split("::").map(part => part.trim());
 
     // Convert each part into a dot-delimited, PascalCase format
-    const pascalCaseParts = parts.map(part => toPascalCase(part));
+    const pascalCaseParts = parts.map(part => part.includes(" ") ? toPascalCase(part) : part);
 
     // If a test directory was found, prepend it to the test name
     if (testDir) {
