@@ -45,7 +45,7 @@
       "test": [
         {
           "id": "dotnetTestExplorer",
-          "name": ".NET Test Explorer"
+          "name": "Cucumber Test Explorer"
         }
       ]
     },
